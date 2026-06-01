@@ -88,9 +88,108 @@ io.use(async (socket, next) => {
   }
 });
 
+// Path Traversal Protection Helper
+function validatePath(targetPath) {
+  if (!ACTIVE_WORKSPACE) {
+    throw new Error('ACTIVE_WORKSPACE is not configured');
+  }
+  // Resolve absolute path
+  const absolutePath = path.resolve(ACTIVE_WORKSPACE, targetPath);
+  
+  // Strict descendant checking
+  const isSelf = absolutePath === ACTIVE_WORKSPACE;
+  const isDescendant = absolutePath.startsWith(ACTIVE_WORKSPACE + path.sep);
+  
+  if (!isSelf && !isDescendant) {
+    throw new Error('Access Denied: Path traversal detected');
+  }
+  return absolutePath;
+}
+
+// Directory Tree Generator
+function getDirectoryTree(dirPath) {
+  const stats = fs.statSync(dirPath);
+  const info = {
+    name: path.basename(dirPath),
+    path: path.relative(ACTIVE_WORKSPACE, dirPath) || '.',
+  };
+
+  if (stats.isDirectory()) {
+    info.type = 'directory';
+    const files = fs.readdirSync(dirPath);
+    info.children = files
+      .filter(file => file !== 'node_modules' && file !== '.git' && file !== '.claude' && file !== '.gemini')
+      .map(file => {
+        try {
+          return getDirectoryTree(path.join(dirPath, file));
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } else {
+    info.type = 'file';
+  }
+  return info;
+}
+
+// HTTP JWT Authentication Middleware
+const authenticateHTTP = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing token' });
+  }
+  const token = authHeader.split('Bearer ')[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    if (!decodedToken.email || decodedToken.email !== AUTHORIZED_EMAIL) {
+      return res.status(403).json({ error: 'Forbidden: Unauthorized email address' });
+    }
+    req.user = decodedToken;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+};
+
 // Server endpoints
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', workspace: ACTIVE_WORKSPACE });
+});
+
+// File System Sandboxing HTTP endpoints
+app.get('/api/workspace-tree', authenticateHTTP, (req, res) => {
+  try {
+    if (!ACTIVE_WORKSPACE) {
+      return res.status(500).json({ error: 'ACTIVE_WORKSPACE not configured' });
+    }
+    const tree = getDirectoryTree(ACTIVE_WORKSPACE);
+    res.json(tree);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/file', authenticateHTTP, (req, res) => {
+  const relativePath = req.query.path;
+  if (!relativePath) {
+    return res.status(400).json({ error: 'Path parameter is required' });
+  }
+  try {
+    const securePath = validatePath(relativePath);
+    const stats = fs.statSync(securePath);
+    if (!stats.isFile()) {
+      return res.status(400).json({ error: 'Target path is not a file' });
+    }
+    const content = fs.readFileSync(securePath, 'utf8');
+    res.json({ path: relativePath, content });
+  } catch (error) {
+    if (error.message.includes('Access Denied')) {
+      res.status(403).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
+  }
 });
 
 io.on('connection', (socket) => {
@@ -154,6 +253,36 @@ io.on('connection', (socket) => {
 
     // Forward the input stream to node-pty
     socket.ptyProcess.write(data);
+  });
+
+  // Handle request for workspace directory tree
+  socket.on('get-workspace-tree', () => {
+    try {
+      if (!ACTIVE_WORKSPACE) {
+        return socket.emit('workspace-tree-error', 'ACTIVE_WORKSPACE not configured on backend.');
+      }
+      const tree = getDirectoryTree(ACTIVE_WORKSPACE);
+      socket.emit('workspace-tree', tree);
+    } catch (error) {
+      console.error('Error listing directory tree:', error);
+      socket.emit('workspace-tree-error', 'Failed to list directory tree.');
+    }
+  });
+
+  // Handle request for reading a specific file
+  socket.on('read-file', (relativePath) => {
+    try {
+      const securePath = validatePath(relativePath);
+      const stats = fs.statSync(securePath);
+      if (!stats.isFile()) {
+        return socket.emit('file-read-error', { path: relativePath, error: 'Path is not a file' });
+      }
+      const content = fs.readFileSync(securePath, 'utf8');
+      socket.emit('file-content', { path: relativePath, content });
+    } catch (error) {
+      console.error(`Error reading file ${relativePath}:`, error.message);
+      socket.emit('file-read-error', { path: relativePath, error: error.message });
+    }
   });
 
   // Resize terminal event
