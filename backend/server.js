@@ -50,6 +50,16 @@ const io = new Server(server, {
   }
 });
 
+// Import node-pty and os
+const pty = require('node-pty');
+const os = require('os');
+
+// Detect default shell
+const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'zsh');
+
+// Security Command Blacklist Regex
+const BLACKLIST_REGEX = /rm\s+-rf|sudo\s|dd\s+if=|:\(\)\{\s*:\|:&\}\s*;/i;
+
 // Identity Verification: Intercept WebSocket Upgrade
 io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
@@ -86,11 +96,92 @@ app.get('/health', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`Socket connection established: ${socket.id}`);
 
-  // Auto-kill placeholder (will be implemented in next step)
+  // Spawn node-pty process for the user session
+  const ptyProcess = pty.spawn(shell, [], {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 24,
+    cwd: ACTIVE_WORKSPACE || process.env.HOME,
+    env: {
+      ...process.env,
+      PS1: 'pocket-g:\\w\\$ ' // Secure custom prompt indicator
+    }
+  });
+
+  socket.ptyProcess = ptyProcess;
+  let lineBuffer = '';
+
+  // Stream data from pty to socket client
+  ptyProcess.onData((data) => {
+    socket.emit('terminal-output', data);
+  });
+
+  // Handle keystroke data from client
+  socket.on('terminal-input', (data) => {
+    if (!socket.ptyProcess) return;
+
+    // Iterate over incoming characters for line buffering
+    for (let i = 0; i < data.length; i++) {
+      const char = data[i];
+
+      if (char === '\r' || char === '\n') {
+        // Evaluate command line buffer against blacklist
+        if (BLACKLIST_REGEX.test(lineBuffer.trim())) {
+          console.warn(`[SECURITY ALERT] User tried to execute blacklisted command: "${lineBuffer}"`);
+          
+          // Print error to terminal
+          socket.emit('terminal-output', '\r\n\x1b[31;1m[SECURITY BLOCK] Command execution blocked!\x1b[0m\r\n');
+          
+          // Send interrupt to pty to clear the current line buffer on host shell
+          socket.ptyProcess.write('\x03');
+          lineBuffer = '';
+          return;
+        }
+        lineBuffer = '';
+      } else if (char === '\x7f' || char === '\b') {
+        // Backspace
+        if (lineBuffer.length > 0) {
+          lineBuffer = lineBuffer.slice(0, -1);
+        }
+      } else if (char === '\x03') {
+        // Ctrl+C
+        lineBuffer = '';
+      } else if (char.charCodeAt(0) >= 32 && char.charCodeAt(0) <= 126) {
+        // Only buffer printable characters
+        lineBuffer += char;
+      }
+    }
+
+    // Forward the input stream to node-pty
+    socket.ptyProcess.write(data);
+  });
+
+  // Resize terminal event
+  socket.on('terminal-resize', (size) => {
+    if (socket.ptyProcess && size && typeof size.cols === 'number' && typeof size.rows === 'number') {
+      try {
+        socket.ptyProcess.resize(size.cols, size.rows);
+      } catch (err) {
+        console.error('Failed to resize PTY:', err);
+      }
+    }
+  });
+
+  // Auto-kill on disconnect
   socket.on('disconnect', () => {
     console.log(`Socket connection closed: ${socket.id}`);
+    if (socket.ptyProcess) {
+      console.log(`Killing PTY process (PID: ${socket.ptyProcess.pid}) for socket ${socket.id}`);
+      try {
+        socket.ptyProcess.kill();
+      } catch (e) {
+        console.error('Error killing PTY:', e);
+      }
+      socket.ptyProcess = null;
+    }
   });
 });
+
 
 server.listen(PORT, () => {
   console.log(`Pocket-G gatekeeper backend listening on port ${PORT}`);
