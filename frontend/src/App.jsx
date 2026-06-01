@@ -3,6 +3,8 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebaseConfig';
 import Login from './Login';
 import { io } from 'socket.io-client';
+import Terminal from './components/Terminal';
+import Workspace from './components/Workspace';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -10,6 +12,7 @@ export default function App() {
   const [socket, setSocket] = useState(null);
   const [hostIp, setHostIp] = useState(localStorage.getItem('pocket_g_host_ip') || 'localhost:3001');
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
+  const [activeTab, setActiveTab] = useState('workspace'); // 'workspace' or 'terminal'
 
   // Listen to Auth State
   useEffect(() => {
@@ -82,6 +85,14 @@ export default function App() {
     setSocket(newSocket);
   };
 
+  const disconnectFromHost = () => {
+    if (socket) {
+      socket.disconnect();
+      setSocket(null);
+      setConnectionStatus('Disconnected');
+    }
+  };
+
   const handleLogout = () => {
     signOut(auth);
   };
@@ -91,97 +102,74 @@ export default function App() {
   }
 
   return (
-    <div style={{
-      padding: '24px',
-      backgroundColor: '#0a0d14',
-      color: '#f0f3f6',
-      height: '100vh',
-      fontFamily: 'sans-serif'
-    }}>
-      <header style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid #1e293b',
-        paddingBottom: '16px',
-        marginBottom: '24px'
-      }}>
-        <div>
-          <h2>Pocket-G Workspace</h2>
-          <span style={{ fontSize: '12px', color: '#8892b0' }}>Authenticated as: {user.email}</span>
+    <div className="app-layout">
+      {/* Top Header */}
+      <header className="app-header">
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontSize: '13px', fontWeight: 'bold' }}>Pocket-G</span>
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{user.email}</span>
         </div>
+
+        <div className="host-section">
+          <input
+            type="text"
+            className="host-input"
+            value={hostIp}
+            onChange={(e) => setHostIp(e.target.value)}
+            placeholder="Host IP (e.g. 100.x.x.x:3001)"
+          />
+          {connectionStatus === 'Connected' ? (
+            <button className="btn-conn" style={{ backgroundColor: 'var(--error)' }} onClick={disconnectFromHost}>
+              Disconnect
+            </button>
+          ) : (
+            <button className="btn-conn" onClick={connectToHost}>
+              Connect
+            </button>
+          )}
+          <span className={`status-indicator ${connectionStatus === 'Connected' ? 'connected' : 'disconnected'}`}>
+            {connectionStatus}
+          </span>
+        </div>
+
         <button
           onClick={handleLogout}
           style={{
-            padding: '8px 16px',
-            backgroundColor: '#ef4444',
-            color: '#fff',
+            background: 'none',
             border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
+            color: 'var(--error)',
+            fontSize: '11px',
+            cursor: 'pointer',
+            fontWeight: 600
           }}
         >
-          Logout
+          Sign Out
         </button>
       </header>
 
-      <main style={{
-        backgroundColor: '#121620',
-        padding: '24px',
-        borderRadius: '8px',
-        border: '1px solid #1e293b',
-        maxWidth: '500px'
-      }}>
-        <h3>Host Gateway Connection</h3>
-        <p style={{ fontSize: '13px', color: '#8892b0', marginBottom: '16px' }}>
-          Connect to the gatekeeper server running on your macOS host Tailscale IP address.
-        </p>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label style={{ fontSize: '12px', fontWeight: 'bold' }}>MacBook Host IP Address</label>
-          <input
-            type="text"
-            value={hostIp}
-            onChange={(e) => setHostIp(e.target.value)}
-            placeholder="e.g. 100.x.x.x:3001"
-            style={{
-              padding: '10px',
-              backgroundColor: '#0a0d14',
-              color: '#fff',
-              border: '1px solid #1e293b',
-              borderRadius: '4px'
-            }}
-          />
-
-          <button
-            onClick={connectToHost}
-            style={{
-              padding: '12px',
-              backgroundColor: '#6366f1',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              marginTop: '8px'
-            }}
-          >
-            Connect to Backend
-          </button>
-        </div>
-
-        <div style={{ marginTop: '24px', borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
-          <span style={{ fontSize: '13px' }}>
-            Connection Status:{' '}
-            <strong style={{
-              color: connectionStatus === 'Connected' ? '#10b981' :
-                     connectionStatus === 'Disconnected' ? '#ef4444' : '#f59e0b'
-            }}>
-              {connectionStatus}
-            </strong>
-          </span>
-        </div>
+      {/* Main Content Viewports */}
+      <main className="app-content">
+        {activeTab === 'workspace' && <Workspace socket={socket} />}
+        {activeTab === 'terminal' && <Terminal socket={socket} />}
       </main>
+
+      {/* Bottom Navigation tab bar */}
+      <nav className="app-nav">
+        <button 
+          className={`nav-tab-btn ${activeTab === 'workspace' ? 'active' : ''}`}
+          onClick={() => setActiveTab('workspace')}
+        >
+          <span className="nav-tab-icon">📁</span>
+          <span className="nav-tab-label">Workspace</span>
+        </button>
+        <button 
+          className={`nav-tab-btn ${activeTab === 'terminal' ? 'active' : ''}`}
+          onClick={() => setActiveTab('terminal')}
+        >
+          <span className="nav-tab-icon">💻</span>
+          <span className="nav-tab-label">Terminal</span>
+        </button>
+      </nav>
     </div>
   );
 }
