@@ -93,6 +93,53 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', workspace: ACTIVE_WORKSPACE });
 });
 
+// Path Traversal Protection Helper
+function validatePath(targetPath) {
+  if (!ACTIVE_WORKSPACE) {
+    throw new Error('ACTIVE_WORKSPACE is not configured');
+  }
+  // Resolve absolute path
+  const absolutePath = path.resolve(ACTIVE_WORKSPACE, targetPath);
+  
+  // Strict descendant checking
+  const isSelf = absolutePath === ACTIVE_WORKSPACE;
+  const isDescendant = absolutePath.startsWith(ACTIVE_WORKSPACE + path.sep);
+  
+  if (!isSelf && !isDescendant) {
+    const error = new Error('Access Denied: Path traversal detected');
+    error.status = 403;
+    throw error;
+  }
+  return absolutePath;
+}
+
+// Directory Tree Generator
+function getDirectoryTree(dirPath) {
+  const stats = fs.statSync(dirPath);
+  const info = {
+    name: path.basename(dirPath),
+    path: path.relative(ACTIVE_WORKSPACE, dirPath) || '.',
+  };
+
+  if (stats.isDirectory()) {
+    info.type = 'directory';
+    const files = fs.readdirSync(dirPath);
+    info.children = files
+      .filter(file => file !== 'node_modules' && file !== '.git' && file !== '.claude' && file !== '.gemini')
+      .map(file => {
+        try {
+          return getDirectoryTree(path.join(dirPath, file));
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } else {
+    info.type = 'file';
+  }
+  return info;
+}
+
 // WebSocket Connection Handler
 io.on('connection', (socket) => {
   console.log(`Socket connection established: ${socket.id}`);
@@ -168,9 +215,45 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2. fetch_file_content placeholder (Step 3 implementation target)
-  socket.on('fetch_file_content', (filePath) => {
-    console.log(`[Placeholder] Received fetch_file_content for path from ${socket.id}:`, filePath);
+  // Live File Tree request handler
+  socket.on('get_file_tree', () => {
+    try {
+      if (!ACTIVE_WORKSPACE) {
+        return socket.emit('file_tree_error', 'ACTIVE_WORKSPACE not configured on backend.');
+      }
+      const tree = getDirectoryTree(ACTIVE_WORKSPACE);
+      socket.emit('file_tree', tree);
+    } catch (error) {
+      console.error('Error listing directory tree:', error);
+      socket.emit('file_tree_error', 'Failed to list directory tree.');
+    }
+  });
+
+  // Live File Content request handler
+  socket.on('fetch_file_content', (relativePath) => {
+    try {
+      const securePath = validatePath(relativePath);
+      const stats = fs.statSync(securePath);
+      
+      if (!stats.isFile()) {
+        return socket.emit('fetch_file_content_error', { path: relativePath, error: 'Path is not a file' });
+      }
+
+      fs.readFile(securePath, 'utf8', (err, data) => {
+        if (err) {
+          console.error(`Error reading file ${relativePath}:`, err.message);
+          return socket.emit('fetch_file_content_error', { path: relativePath, error: err.message });
+        }
+        socket.emit('file_content', { path: relativePath, content: data });
+      });
+    } catch (error) {
+      console.error(`Error validating file ${relativePath}:`, error.message);
+      const status = error.status || 500;
+      socket.emit('fetch_file_content_error', { 
+        path: relativePath, 
+        error: `${status} Forbidden: Access Denied` 
+      });
+    }
   });
 
   // Auto-kill on disconnect
