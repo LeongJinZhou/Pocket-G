@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pocket-G: Remote Antigravity Client</title>
+  
+  <!-- Modern Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- CSS Styles -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- xterm.js for the terminal emulator -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  
+  <!-- Prism.js for code syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+  <!-- Socket.io Client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <!-- App Container -->
+  <div id="app" class="app-container">
+    
+    <!-- Auth Gateway Screen -->
+    <div id="auth-screen" class="screen active">
+      <div class="auth-card">
+        <div class="logo-container">
+          <div class="logo-orb"></div>
+          <h1>Pocket-G</h1>
+        </div>
+        <p class="subtitle">Secure Stateless Remote Antigravity CLI Client</p>
+        
+        <div class="auth-status-container">
+          <p id="auth-status-message">Authenticating...</p>
+        </div>
+        
+        <button id="btn-login" class="btn-primary" style="display: none;">
+          <svg class="google-icon" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Sign in with Google
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Client Dashboard Screen -->
+    <div id="main-screen" class="screen">
+      
+      <!-- Top Status Indicator Header -->
+      <header class="main-header">
+        <div class="user-info">
+          <span class="user-email" id="header-user-email">user@google.com</span>
+        </div>
+        <div class="host-connection">
+          <input type="text" id="host-ip-input" class="ip-input" placeholder="MacBook Host (e.g. 100.x.x.x:3001)">
+          <button id="btn-connect" class="btn-connect">Connect</button>
+          <span class="status-badge disconnected" id="connection-status">Offline</span>
+        </div>
+      </header>
+
+      <!-- Viewports Content Area -->
+      <main class="content-area">
+        
+        <!-- Tab 1 Viewport: Workspace -->
+        <div id="tab-workspace" class="tab-content active">
+          <div class="workspace-layout">
+            <div class="sidebar-tree">
+              <div class="section-title">
+                <h3>ACTIVE_WORKSPACE</h3>
+                <button id="btn-refresh-tree" class="btn-icon">↻</button>
+              </div>
+              <div id="file-tree-container" class="file-tree-scroll">
+                <p class="placeholder-text">Please connect to host to view file tree.</p>
+              </div>
+            </div>
+            <div class="file-editor-viewer">
+              <div class="viewer-header">
+                <span class="active-file-path" id="view-file-path">No File Selected</span>
+              </div>
+              <div class="viewer-body">
+                <pre class="syntax-pre"><code id="code-viewer-block" class="language-javascript">// Select a file from the tree to view its content.</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2 Viewport: Terminal -->
+        <div id="tab-terminal" class="tab-content">
+          <div class="terminal-layout">
+            <!-- Fullscreen Terminal -->
+            <div id="terminal-container"></div>
+            
+            <!-- Mobile Shortcut Keyboard Keys Bar -->
+            <div class="keyboard-shortcuts">
+              <button class="kbd-btn" data-key="Tab">Tab</button>
+              <button class="kbd-btn" data-key="Ctrl">Ctrl</button>
+              <button class="kbd-btn" data-key="Esc">Esc</button>
+              <button class="kbd-btn" data-key="Up">▲</button>
+              <button class="kbd-btn" data-key="Down">▼</button>
+              <button class="kbd-btn" data-key="Clear">Clear</button>
+            </div>
+          </div>
+        </div>
+        
+      </main>
+
+      <!-- Bottom Tab Bar Navigation -->
+      <nav class="bottom-nav">
+        <button id="nav-btn-workspace" class="nav-item active">
+          <span class="nav-icon">📁</span>
+          <span class="nav-label">Workspace</span>
+        </button>
+        <button id="nav-btn-terminal" class="nav-item">
+          <span class="nav-icon">💻</span>
+          <span class="nav-label">Terminal</span>
+        </button>
+      </nav>
+
+    </div>
+  </div>
+
+  <!-- App Main Code Script (ES Module) -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
