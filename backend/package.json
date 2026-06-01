@@ -1,0 +1,17 @@
+{
+  "name": "pocket-g-backend",
+  "version": "1.0.0",
+  "description": "Secure Local Gatekeeper for Google Antigravity Remote CLI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.1.0",
+    "node-pty": "^1.1.0-beta21",
+    "socket.io": "^4.7.5"
+  }
+}
