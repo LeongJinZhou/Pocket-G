@@ -83,8 +83,21 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', workspace: ACTIVE_WORKSPACE });
 });
 
+// WebSocket Connection Handler
 io.on('connection', (socket) => {
   console.log(`Socket connection established: ${socket.id}`);
+
+  // Foundational placeholder event listeners for next steps
+  
+  // 1. terminal_input placeholder (Step 2 implementation target)
+  socket.on('terminal_input', (data) => {
+    console.log(`[Placeholder] Received terminal_input from ${socket.id}:`, data);
+  });
+
+  // 2. fetch_file_content placeholder (Step 3 implementation target)
+  socket.on('fetch_file_content', (filePath) => {
+    console.log(`[Placeholder] Received fetch_file_content for path from ${socket.id}:`, filePath);
+  });
 
   socket.on('disconnect', () => {
     console.log(`Socket connection closed: ${socket.id}`);
